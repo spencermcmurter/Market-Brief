@@ -1,0 +1,30 @@
+name: Daily Market Brief
+
+on:
+  schedule:
+    - cron: "0 12 * * 0,1,2,3,4,5"   # 8 AM EDT (summer)
+    - cron: "0 13 * * 0,1,2,3,4,5"   # 8 AM EST (winter)
+  workflow_dispatch:
+
+jobs:
+  send-brief:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Build and send the brief
+        env:
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          WATCHLIST_GID: ${{ secrets.WATCHLIST_GID }}
+          SECTORS_GID: ${{ secrets.SECTORS_GID }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT: ${{ secrets.RECIPIENT }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          SEC_CONTACT: ${{ secrets.SEC_CONTACT }}
+          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+        run: python main.py
