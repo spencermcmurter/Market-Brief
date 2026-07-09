@@ -1,42 +1,52 @@
 """
-The ranking brain. Turns raw items into a ranked, de-duplicated brief that
-follows the rubric we agreed on:
-
-  HIGH   = immediate / critical market impact (macro today, systemic/geo,
-           sector regulation, guidance change, M&A, leadership change, dividend CUT,
-           pre-market direction)
-  MEDIUM = shapes the sector but not a same-day shock (industry trends, product/
-           contract, routine dividend/buyback, secondary data)
-  LOW    = delayed / questionable / backward-looking (earnings result alone,
-           analyst ratings, insider trades, competitor routine news)
-  EXCLUDE= opinion / stock-tip content (already filtered by source blocklist)
-
-Industry news is preferred; company news only surfaces strongly when it clears
-a top-tier category ("*" = big for that company).
+The ranking brain. Turns raw items into a ranked, de-duplicated brief following
+the agreed rubric. Matching uses WHOLE-WORD boundaries so "war" no longer matches
+"software" and "fed" no longer matches "federal". A noise filter drops operational
+stories (labour disputes, sponsorships, galas) that share keywords with real events.
 """
 import re
 from difflib import SequenceMatcher
 
 from sources import _source_tier
 
-# --- keyword buckets for category detection ---
-HIGH_MACRO = ["rate decision", "interest rate", "fomc", "fed ", "federal reserve",
-              "bank of canada", "boc ", "cpi", "inflation", "jobs report", "payrolls",
-              "unemployment", "gdp", "central bank", "rate cut", "rate hike"]
-HIGH_SYSTEMIC = ["war", "invasion", "strike", "ceasefire", "sanction", "attack",
-                 "banking crisis", "bank failure", "default", "shutdown",
-                 "government spending", "tariff", "oil price", "strait of hormuz"]
-HIGH_REG = ["osfi", "crtc", "regulator", "regulation", "antitrust", "rate case",
-            "ruling", "probe", "investigation", "government report"]
-HIGH_COMPANY = ["acquire", "acquisition", "merger", "takeover", "buyout", "to buy",
-                "guidance", "forecast cut", "cuts outlook", "raises outlook", "warns",
-                "ceo", "cfo", "chief executive", "chief financial", "steps down",
-                "resigns", "appoint", "dividend cut", "slashes dividend"]
-MED_COMPANY = ["launch", "unveils", "contract", "deal", "partnership", "consortium",
-               "buyback", "dividend increase", "raises dividend", "expansion", "expands"]
+HIGH_MACRO = ["rate decision", "interest rate", "interest rates", "fomc",
+              "federal reserve", "bank of canada", "boc", "cpi", "inflation",
+              "jobs report", "payrolls", "nonfarm", "unemployment rate", "gdp",
+              "central bank", "rate cut", "rate hike", "monetary policy",
+              "fed minutes", "fed chair", "quantitative"]
+HIGH_SYSTEMIC = ["war", "warfare", "invasion", "ceasefire", "airstrike", "air strike",
+                 "air strikes", "missile", "missiles", "military strike",
+                 "drone strike", "sanction", "sanctions", "embargo",
+                 "banking crisis", "bank failure", "sovereign default",
+                 "government shutdown", "government spending", "stimulus",
+                 "tariff", "tariffs", "oil price", "oil prices",
+                 "strait of hormuz", "geopolitical"]
+HIGH_REG = ["osfi", "crtc", "regulator", "regulators", "regulation", "antitrust",
+            "rate case", "ruling", "sanctioned", "probe", "investigation",
+            "government report", "competition bureau"]
+HIGH_COMPANY = ["acquire", "acquires", "acquisition", "merger", "merges", "takeover",
+                "buyout", "to buy", "guidance", "cuts outlook", "raises outlook",
+                "profit warning", "warns", "ceo", "cfo", "chief executive",
+                "chief financial", "steps down", "resigns", "resign", "appoints",
+                "appointment", "dividend cut", "slashes dividend", "cuts dividend"]
+MED_COMPANY = ["launch", "launches", "unveils", "contract", "deal", "partnership",
+               "consortium", "buyback", "share buyback", "dividend increase",
+               "raises dividend", "expansion", "expands", "invests", "investment"]
 LOW_COMPANY = ["beats", "misses", "earnings", "quarterly results", "reported",
                "price target", "upgrade", "downgrade", "analyst", "rated",
-               "insider", "stake"]
+               "insider", "stake", "short seller"]
+
+NOISE = ["replacement workers", "labour board", "labor board", "union", "picket",
+         "collective agreement", "strike vote", "on strike", "layoff", "layoffs",
+         "sponsor", "sponsorship", "donates", "donation", "charity", "foundation",
+         "gala", "golf", "obituary", "wins award", "named to", "employee of"]
+
+
+def _has(text, keywords):
+    for kw in keywords:
+        if re.search(r"\b" + re.escape(kw) + r"\b", text):
+            return kw
+    return None
 
 
 def _cat_and_tier(item):
@@ -49,31 +59,33 @@ def _cat_and_tier(item):
             return "Filing", "High", True
         return "Filing", "Medium", True
 
-    if any(k in t for k in HIGH_SYSTEMIC):
+    if _has(t, NOISE):
+        return "Operational / low-signal", "Low", False
+
+    if _has(t, HIGH_SYSTEMIC):
         return "Systemic / Geo", "High", False
-    if any(k in t for k in HIGH_MACRO):
+    if _has(t, HIGH_MACRO):
         return "Macro", "High", False
-    if any(k in t for k in HIGH_REG):
+    if _has(t, HIGH_REG):
         return "Regulatory", "High", scope == "company"
 
     if scope == "company":
-        if any(k in t for k in HIGH_COMPANY):
+        if _has(t, HIGH_COMPANY):
             return "Company (top-tier)", "High", True
-        if any(k in t for k in MED_COMPANY):
+        if _has(t, MED_COMPANY):
             return "Company (strategic)", "Medium", True
-        if any(k in t for k in LOW_COMPANY):
+        if _has(t, LOW_COMPANY):
             return "Company (result/rating)", "Low", False
         return "Company", "Low", False
 
-    # sector-scope default: industry trend
     return "Sector / Industry", "Medium", False
 
 
 def _score(item, tier, source_tier):
     base = {"High": 100, "Medium": 55, "Low": 20}[tier]
-    base += source_tier * 6                       # reputable outlets rank higher
+    base += source_tier * 6
     if item.get("scope") == "sector":
-        base += 8                                 # industry-first preference
+        base += 8
     if item.get("scope") == "company" and item.get("priority", "Watch") == "Core":
         base += 4
     if item.get("is_filing"):
@@ -95,7 +107,7 @@ def rank_and_dedupe(raw_items):
     for it in raw_items:
         st = _source_tier(it.get("source", ""))
         if st == 0:
-            continue                              # excluded tip/opinion outlet
+            continue
         cat, tier, star = _cat_and_tier(it)
         it["category"] = cat
         it["tier"] = tier
@@ -104,7 +116,6 @@ def rank_and_dedupe(raw_items):
         it["_norm"] = _norm_title(it.get("title", ""))
         scored.append(it)
 
-    # collapse duplicates: same story across outlets -> keep highest score
     scored.sort(key=lambda x: x["score"], reverse=True)
     kept = []
     for it in scored:
@@ -120,7 +131,6 @@ def rank_and_dedupe(raw_items):
         if not dup:
             kept.append(it)
 
-    # read-first = top High-tier items (macro today + systemic lead the eye)
     order = {"Systemic / Geo": 0, "Macro": 1, "Regulatory": 2}
     highs = [x for x in kept if x["tier"] == "High"]
     highs.sort(key=lambda x: (order.get(x["category"], 9), -x["score"]))
