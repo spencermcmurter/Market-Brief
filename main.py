@@ -87,7 +87,15 @@ def main():
     date_short = now_et.strftime("%Y-%m-%d")
     out_path = f"/tmp/Market_Brief_{date_short}.xlsx"
     B.build_xlsx(sections, econ, earnings, out_path, date_label)
-    html_body = B.build_email_html(sections, econ, date_label)
+
+    # Email body = synthesized <=5-page narrative if a key is set; else the list.
+    narrative = analyst.write_brief(ranked, econ, companies, sectors)
+    if narrative:
+        html_body = ("<div style='font-family:Arial;max-width:720px;color:#222'>"
+                     f"<h1 style='color:#1F3B4D;font-size:20px'>Atlas \u2014 Daily Market "
+                     f"Brief \u00b7 {date_label}</h1>{narrative}</div>")
+    else:
+        html_body = B.build_email_html(sections, econ, date_label)
 
     rf = len(sections["read_first"])
     hi = len(sections["high"])
