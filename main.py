@@ -89,13 +89,28 @@ def main():
     B.build_xlsx(sections, econ, earnings, out_path, date_label)
 
     # Email body = synthesized <=5-page narrative if a key is set; else the list.
+    gem = bool(os.environ.get("GEMINI_API_KEY", "").strip())
+    ant = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
     narrative = analyst.write_brief(ranked, econ, companies, sectors)
     if narrative:
+        provider = "Anthropic" if ant else "Gemini"
+        diag = f"diagnostic: AI narrative brief generated via {provider}."
         html_body = ("<div style='font-family:Arial;max-width:720px;color:#222'>"
                      f"<h1 style='color:#1F3B4D;font-size:20px'>Atlas \u2014 Daily Market "
                      f"Brief \u00b7 {date_label}</h1>{narrative}</div>")
     else:
+        if not gem and not ant:
+            diag = ("diagnostic: templates used \u2014 NO API key reached the job. "
+                    "The GEMINI_API_KEY line is missing from the running "
+                    ".github/workflows/daily-brief.yml (or edited on the wrong copy).")
+        else:
+            diag = ("diagnostic: templates used \u2014 API key WAS present but the model "
+                    "call failed. Check the [analyst] lines in the Actions log for the "
+                    "HTTP reason (bad key or model name).")
         html_body = B.build_email_html(sections, econ, date_label)
+
+    html_body += (f"<p style='font-family:Arial;color:#9aa;font-size:11px;"
+                  f"margin-top:24px;border-top:1px solid #eee;padding-top:8px'>{diag}</p>")
 
     rf = len(sections["read_first"])
     hi = len(sections["high"])
