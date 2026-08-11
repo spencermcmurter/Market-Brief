@@ -35,9 +35,11 @@ jobs:
           # Calendar (free FMP key) + SEC contact
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
           SEC_CONTACT: ${{ secrets.SEC_CONTACT }}
-          # Analyst "why it matters" notes (Claude API). Leave unset to use templates.
+          # Analyst "why it matters" notes. Set ONE of these (or neither -> templates).
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
           # When you click "Run workflow" by hand, force it to run:
           FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
         run: python main.py
